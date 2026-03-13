@@ -2,6 +2,61 @@
 
 本仓库提供了一套脚本和 OpenClaw Skills，帮助你从 Stove Protocol 文档站点抓取 API 文档、转换为 Markdown，并基于这些文档构建可直接调用 Stove API 的技能。
 
+### 在 OpenClaw 中安装与测试 Skills
+
+#### 1. 安装 Skills
+
+OpenClaw 默认会从工作区的 `skills/` 目录加载技能。你可以有两种方式使用本仓库的 skills：
+
+- **方式一：直接把本仓库的 `skills/` 作为 OpenClaw workspace 的一部分**
+  - 将整个仓库作为一个 workspace 打开（或克隆到 `~/.openclaw/workspace` 下）。
+  - 确保目录结构类似：
+    - `~/.openclaw/workspace/stove-protocol-skills/skills/stove-public-api/...`
+  - 然后在 OpenClaw 中刷新或重启代理，新的 skills 会被自动发现。
+
+- **方式二：拷贝/软链到 OpenClaw 的 skills 目录**
+  - 找到 OpenClaw 的 workspace skills 目录（通常类似 `~/.openclaw/workspace/skills/`）。
+  - 将三个 skill 文件夹复制或创建软链接到该目录：
+
+    ```bash
+    mkdir -p ~/.openclaw/workspace/skills
+    cd ~/.openclaw/workspace/skills
+    # 复制
+    cp -r /path/to/stove-protocol-skills/skills/stove-public-api .
+    cp -r /path/to/stove-protocol-skills/skills/stove-maker-api .
+    cp -r /path/to/stove-protocol-skills/skills/stove-taker-api .
+    # 或者使用 ln -s 创建软链接（按需选择）
+    ```
+
+  - 重启或刷新 OpenClaw，确保能在技能列表里看到：
+    - `stove_public_api`
+    - `stove_maker_api`
+    - `stove_taker_api`
+
+#### 2. 配置鉴权信息
+
+- 在 OpenClaw 中，为相关 skills 填写配置项（对应 `SKILL.md` 中的 `config`）：
+  - `stove_public_api`：
+    - 可选：`base_url`、`use_test_env`（是否使用 `https://api-qa.proto.stove.finance`）。
+  - `stove_maker_api`：
+    - `jwt_token`（必填，Maker 端 JWT）。
+    - 可选：`base_url`、`use_test_env`。
+  - `stove_taker_api`：
+    - `api_key`（必填，Taker 端 API Key）。
+    - 可选：`base_url`、`use_test_env`。
+
+这些配置会被 OpenClaw 保存为 skill 的运行时参数，Python 脚本则通过命令行参数（如 `--jwt-token`、`--api-key`、`--env`）获知如何访问正确的环境。
+
+#### 3. 在对话里测试调用
+
+完成安装与配置后，可以通过对话测试，例如：
+
+- “使用 `stove_public_api` 查询一下纳斯达克的 ticker 热力图（exchange=0）”
+- “用 `stove_maker_api` 查一下我在 AAPL 上的挂单列表”
+- “用 `stove_taker_api` 帮我锁定这个订单（给出 order_hash 和 taker 地址）”
+
+OpenClaw 会选择对应的 skill，按 `SKILL.md` 中的约定调用 `scripts/*.py`，再基于脚本返回结果进行总结和解释。
+
 ### 依赖与环境
 
 - Python 3.12（推荐使用 `uv` 管理虚拟环境）
@@ -105,23 +160,6 @@ python scripts/sync_references.py
   - `skills/stove-taker-api/references/*.md`
 - 如果源 `md` 内容为空，则跳过，不复制。
 - 如果目标文件已存在，则直接覆盖为最新版本。
-
-#### 4. 在 OpenClaw 中使用 Skills 调用 Stove API
-
-三个 skills 都通过 Python 脚本（`entryPoint.type: shell`）封装了 HTTP 调用逻辑，脚本只依赖 Python 标准库：
-
-- Public：
-  - `python skills/stove-public-api/scripts/public_api.py --env prod stats`
-  - `python skills/stove-public-api/scripts/public_api.py --env prod ticker-stats --symbol AAPL --exchange 0`
-  - `python skills/stove-public-api/scripts/public_api.py --env prod ticker-heatmap --exchange 0`
-- Maker：
-  - `python skills/stove-maker-api/scripts/maker_api.py --env prod --jwt-token YOUR_JWT orders --ticker AAPL --status pending,locked`
-  - `python skills/stove-maker-api/scripts/maker_api.py --env prod --jwt-token YOUR_JWT positions`
-- Taker：
-  - `python skills/stove-taker-api/scripts/taker_api.py --env prod --api-key YOUR_API_KEY orders --status locked,filled`
-  - `python skills/stove-taker-api/scripts/taker_api.py --env prod --api-key YOUR_API_KEY fill --body '{"order_hash":"0x...","...": "..."}'`
-
-脚本会将 API 返回的 JSON 原样打印到标准输出，skill 本身负责解析 `code` 和 `data` 字段，并以更易读的形式总结返回给用户。
 
 ### 注意事项
 
