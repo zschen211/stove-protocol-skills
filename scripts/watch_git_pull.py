@@ -2,6 +2,7 @@
 """
 持续监听当前 Git 仓库的 main 分支（或指定分支），
 当 origin 上有新提交时自动执行 git pull 拉取到本地。
+拉取后若 skills/ 下有文件变更，会将对应 skill 目录同步到 ~/.openclaw/workspace/skills。
 
 --repo 可为本地路径或克隆 URL（如 https://github.com/xxx/yyy.git）。
 若为 URL，则会在 --work-dir 目录下 clone（不存在时），再对该目录做监听与拉取。
@@ -9,10 +10,13 @@
 """
 import argparse
 import logging
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+OPENCLAW_SKILLS_DIR = Path.home() / ".openclaw/workspace/skills"
 
 
 def is_clone_url(repo: str) -> bool:
@@ -86,6 +90,35 @@ def clone(url: str, work_dir: Path) -> None:
     )
 
 
+def get_skills_changed_since(repo_dir: Path, since_ref: str) -> list[str]:
+    """返回自 since_ref 以来在 skills/ 下有变更的 skill 名列表（skills 下第一级目录名）。"""
+    result = run_git(repo_dir, "diff", "--name-only", since_ref, "HEAD", "--", "skills/", check=False)
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+    names: set[str] = set()
+    for line in result.stdout.strip().splitlines():
+        path = line.strip().replace("\\", "/")
+        if not path.startswith("skills/") or path == "skills":
+            continue
+        parts = path.split("/")
+        if len(parts) >= 2:
+            names.add(parts[1])
+    return sorted(names)
+
+
+def sync_skill_to_openclaw(repo_dir: Path, skill_name: str, dest_dir: Path, logger: logging.Logger) -> None:
+    """将 repo_dir/skills/<skill_name> 整目录同步到 dest_dir/<skill_name>，覆盖已存在内容。"""
+    src = repo_dir / "skills" / skill_name
+    if not src.is_dir():
+        return
+    dest = dest_dir / skill_name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
+    logger.info("已同步 skill %s -> %s", skill_name, dest)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="持续监听 Git 仓库 main 分支，有更新时自动拉取。",
@@ -123,6 +156,12 @@ def main() -> None:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="日志级别，默认 INFO。",
     )
+    parser.add_argument(
+        "--openclaw-skills-dir",
+        type=Path,
+        default=OPENCLAW_SKILLS_DIR,
+        help="拉取后若有 skills 变更，同步到此目录（默认 ~/.openclaw/workspace/skills）。",
+    )
     args = parser.parse_args()
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
@@ -150,9 +189,15 @@ def main() -> None:
         while True:
             try:
                 if fetch_and_is_behind(repo_dir, args.branch):
+                    head_before = get_current_commit(repo_dir, "HEAD")
                     logger.info("检测到 origin/%s 有新提交，正在拉取...", args.branch)
                     if pull(repo_dir, args.branch, checkout_first=args.checkout_main):
                         logger.info("拉取成功。")
+                        changed_skills = get_skills_changed_since(repo_dir, head_before)
+                        if changed_skills:
+                            args.openclaw_skills_dir.mkdir(parents=True, exist_ok=True)
+                            for name in changed_skills:
+                                sync_skill_to_openclaw(repo_dir, name, args.openclaw_skills_dir, logger)
                     else:
                         logger.warning("拉取失败，请检查冲突或网络。")
                 else:
