@@ -104,3 +104,4 @@ config:
 - 绝不在对话或日志中回显用户密码；只提示“已通过 IMAP_PASSWORD 配置”。
 - 若用户未配置 `IMAP_PASSWORD`，提示其在本机设置环境变量或在 OpenClaw 的 skill 配置中填写 `imap_password`（会以安全方式注入到执行环境）。
 - 仅执行只读操作（LIST、SELECT、SEARCH、FETCH），不执行 STORE、EXPUNGE 等写操作。
+
