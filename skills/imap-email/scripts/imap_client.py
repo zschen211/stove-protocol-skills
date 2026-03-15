@@ -22,18 +22,43 @@ class ImapConfig:
     use_ssl: bool
 
 
+def _env_bool(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
 def get_config(args: argparse.Namespace) -> ImapConfig:
-    password = os.environ.get("IMAP_PASSWORD")
+    host = (os.environ.get("IMAP_HOST") or "").strip() or getattr(args, "host", None)
+    user = (os.environ.get("IMAP_USER") or "").strip() or getattr(args, "user", None)
+    password = (os.environ.get("IMAP_PASSWORD") or "").strip()
+    if not host:
+        raise SystemExit("未配置 IMAP 主机：请设置环境变量 IMAP_HOST 或传入 --host。")
+    if not user:
+        raise SystemExit("未配置邮箱地址：请设置环境变量 IMAP_USER 或传入 --user。")
     if not password:
-        raise SystemExit(
-            "未设置 IMAP_PASSWORD 环境变量。请在执行前 export IMAP_PASSWORD='...' 或在 OpenClaw 中配置 imap_password。"
-        )
+        raise SystemExit("未配置密码：请设置环境变量 IMAP_PASSWORD。")
+    port_arg = getattr(args, "port", None)
+    raw_port = (os.environ.get("IMAP_PORT") or "").strip()
+    if port_arg is not None:
+        port = port_arg
+    elif raw_port:
+        try:
+            port = int(raw_port)
+        except ValueError:
+            port = 993
+    else:
+        port = 993
+    use_ssl = _env_bool("IMAP_USE_SSL", True)
+    if getattr(args, "no_ssl", False):
+        use_ssl = False
     return ImapConfig(
-        host=args.host,
-        port=args.port,
-        user=args.user,
+        host=host,
+        port=port,
+        user=user,
         password=password,
-        use_ssl=args.use_ssl,
+        use_ssl=use_ssl,
     )
 
 
@@ -233,11 +258,12 @@ def cmd_get_mail(cfg: ImapConfig, args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="IMAP 客户端：列出文件夹、列出邮件、查看单封邮件。密码请通过环境变量 IMAP_PASSWORD 设置。",
+        description="IMAP 客户端：列出文件夹、列出邮件、查看单封邮件。"
+        " 配置优先从环境变量读取：IMAP_HOST, IMAP_PORT, IMAP_USER, IMAP_PASSWORD, IMAP_USE_SSL；命令行参数可覆盖。",
     )
-    parser.add_argument("--host", required=True, help="IMAP 服务器地址。")
-    parser.add_argument("--port", type=int, default=993, help="IMAP 端口，默认 993。")
-    parser.add_argument("--user", required=True, help="登录用户名/邮箱。")
+    parser.add_argument("--host", default=None, help="IMAP 服务器地址（可选，未设时用 IMAP_HOST）。")
+    parser.add_argument("--port", type=int, default=None, help="IMAP 端口（可选，未设时用 IMAP_PORT，默认 993）。")
+    parser.add_argument("--user", default=None, help="登录用户名/邮箱（可选，未设时用 IMAP_USER）。")
     parser.add_argument("--no-ssl", action="store_true", help="不使用 SSL（如端口 143）。")
     parser.add_argument("--folder", default="INBOX", help="邮箱文件夹，默认 INBOX。")
 
